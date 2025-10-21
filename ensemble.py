@@ -1,8 +1,13 @@
-import numpy as np
-import pandas as pd
+"""Model ensembling utilities."""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
-from config import ENSEMBLE_WEIGHTS, CALIBRATION
+
+import numpy as np
+import pandas as pd
+
+from config import CALIBRATION, ENSEMBLE_WEIGHTS
 from utils import logistic, nz
 
 
@@ -12,7 +17,7 @@ class PlattScaler:
     b: float = 0.0
     fitted: bool = False
 
-    def fit(self, p: np.ndarray, y: np.ndarray):
+    def fit(self, p: np.ndarray, y: np.ndarray) -> "PlattScaler":
         p = np.clip(p, 1e-6, 1 - 1e-6)
         X = np.column_stack([np.ones_like(p), np.log(p / (1 - p))])
         w = np.linalg.lstsq(X, y, rcond=None)[0]
@@ -21,7 +26,8 @@ class PlattScaler:
         return self
 
     def transform(self, p: np.ndarray) -> np.ndarray:
-        z = self.a * np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6))) + self.b
+        logit = np.log(np.clip(p, 1e-6, 1 - 1e-6) / (1 - np.clip(p, 1e-6, 1 - 1e-6)))
+        z = self.a * logit + self.b
         return nz(logistic(z))
 
 
@@ -33,11 +39,11 @@ def weighted_ensemble(df_pred: pd.DataFrame) -> pd.Series:
         "gb": [c for c in df_pred.columns if "pred_gb" in c.lower() or "pred_gbdt" in c.lower()],
         "dl": [c for c in df_pred.columns if "pred_dl" in c.lower() or "pred_nn" in c.lower()],
     }
-    s = 0.0
-    for k, ws in ENSEMBLE_WEIGHTS.items():
-        if cols[k]:
-            s = s + ws * df_pred[cols[k][0]].astype(float)
-    return nz(s)
+    score = 0.0
+    for key, weight in ENSEMBLE_WEIGHTS.items():
+        if cols[key]:
+            score = score + weight * df_pred[cols[key][0]].astype(float)
+    return nz(score)
 
 
 class Calibrator:
@@ -45,7 +51,7 @@ class Calibrator:
         self.method = method
         self.scaler = PlattScaler() if method == "platt" else None
 
-    def fit(self, p: np.ndarray, y: np.ndarray):
+    def fit(self, p: np.ndarray, y: np.ndarray) -> "Calibrator":
         if self.scaler is not None:
             self.scaler.fit(p, y)
         return self

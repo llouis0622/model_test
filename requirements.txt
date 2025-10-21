@@ -1,0 +1,8 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+python-dateutil
+xgboost
+lightgbm
+tensorflow==2.*

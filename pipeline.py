@@ -1,14 +1,19 @@
-import pandas as pd
+"""Risk pipeline that combines rule-based risk and model predictions."""
+from __future__ import annotations
+
 from typing import Optional
-from preprocessing import load_and_join, normalize_bins
-from risk_aggregate import compute_all_risks
-from ensemble import weighted_ensemble, Calibrator
+
+import pandas as pd
+
 from alerting import assign_alert_by_quantile
 from config import LAMBDA_BLEND
+from ensemble import Calibrator, weighted_ensemble
+from preprocessing import load_and_join, normalize_bins
+from risk_aggregate import compute_all_risks
 
 
-def _coerce_month_col(s):
-    dt = pd.to_datetime(s.astype(str), errors="coerce")
+def _coerce_month_col(series: pd.Series) -> pd.Series:
+    dt = pd.to_datetime(series.astype(str), errors="coerce")
     return pd.to_datetime(dt.dt.to_period("M").astype(str))
 
 
@@ -21,9 +26,14 @@ def _coerce_keys(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def run_pipeline(ds1: pd.DataFrame, ds2: pd.DataFrame, ds3: pd.DataFrame,
-                 preds: Optional[pd.DataFrame] = None,
-                 calib_fit_y: Optional[pd.Series] = None) -> pd.DataFrame:
+def run_pipeline(
+    ds1: pd.DataFrame,
+    ds2: pd.DataFrame,
+    ds3: pd.DataFrame,
+    preds: Optional[pd.DataFrame] = None,
+    calib_fit_y: Optional[pd.Series] = None,
+) -> pd.DataFrame:
+    """Run the full risk aggregation pipeline."""
     df = load_and_join(ds1, ds2, ds3)
     df = normalize_bins(df)
     df = _coerce_keys(df)
@@ -44,15 +54,28 @@ def run_pipeline(ds1: pd.DataFrame, ds2: pd.DataFrame, ds3: pd.DataFrame,
         p_cal = cal.transform(risks["p_model"].values)
         risks["p_model_cal"] = p_cal
 
-    risks["p_final"] = (LAMBDA_BLEND * risks.get("p_model_cal", risks["p_model"]).fillna(0)
-                        + (1.0 - LAMBDA_BLEND) * risks["RiskScore"].fillna(0))
+    risks["p_final"] = (
+        LAMBDA_BLEND * risks.get("p_model_cal", risks["p_model"]).fillna(0)
+        + (1.0 - LAMBDA_BLEND) * risks["RiskScore"].fillna(0)
+    )
     risks["Alert"] = assign_alert_by_quantile(
         risks,
         group_cols=["HPSN_MCT_ZCD_NM"],
         score_col="p_final",
-        q_y=0.80, q_o=0.90, q_r=0.97
+        q_y=0.80,
+        q_o=0.90,
+        q_r=0.97,
     )
 
-    cols = ["ENCODED_MCT", "TA_YM", "Sales_Risk", "Customer_Risk", "Market_Risk", "RiskScore", "p_model", "p_final",
-            "Alert"]
+    cols = [
+        "ENCODED_MCT",
+        "TA_YM",
+        "Sales_Risk",
+        "Customer_Risk",
+        "Market_Risk",
+        "RiskScore",
+        "p_model",
+        "p_final",
+        "Alert",
+    ]
     return risks[cols]
